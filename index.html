@@ -2,11 +2,11 @@
 <html lang="cs">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Průvodce Pražským hradem s navigací</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Mapová Navigace</title>
   <style>
-    html, body { margin:0; padding:0; height:100%; font-family:sans-serif; }
-    .container { display:flex; flex-direction:column; height:100dvh; max-width:600px; margin:0 auto; padding:8px; gap:4px; }
+    html, body { margin:0; padding:0; height:100%; }
+    .container { display:flex; flex-direction:column; height:100dvh; max-width:600px; margin:0 auto; gap:4px; padding:8px; }
     h1 { font-size:1.2rem; margin:0; text-align:center; }
     iframe { width:100%; aspect-ratio:16/9; border:none; }
     #map { flex:1; width:100%; }
@@ -15,11 +15,8 @@
     .nav-btn { margin-top:4px; }
     .leaflet-container { height:100% !important; width:100% !important; }
   </style>
-
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
-  <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.min.js"></script>
 </head>
 <body>
 <div class="container">
@@ -43,20 +40,64 @@ const stops = [
 ];
 
 let currentIndex = 0;
-let map, markers = [], gpsDot, watcher, routingControl;
+let map, gpsDot, watcher;
+let markers = [];
 
 function init() {
-  map = L.map('map').setView(stops[0].coords,18);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20}).addTo(map);
+  map = L.map('map').setView(stops[0].coords, 18);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 20 }).addTo(map);
 
-  const defaultIcon = i=>"https://maps.gstatic.com/mapfiles/ms2/micons/"+(i===0?"red":"blue")+"-dot.png";
-
+  // Značky pro zastávky
   stops.forEach((s,i)=>{
-    let m = L.marker(s.coords,{
-      icon: L.icon({iconUrl: defaultIcon(i), iconSize:[32,32], iconAnchor:[16,32]})
+    let iconUrl = "https://maps.gstatic.com/mapfiles/ms2/micons/" + (i===0 ? "red" : "blue") + "-dot.png";
+    let m = L.marker(s.coords, {
+      icon: L.icon({ iconUrl: iconUrl, iconSize:[32,32], iconAnchor:[16,32] })
     }).addTo(map).on('click', ()=>selectStop(i));
     markers.push(m);
   });
 
-  L.polyline(stops.map(s=>s.coords),{color:'blue',weight:2}).addTo(map);
-  gp
+  // Moje vlastní nakreslená trasa
+  L.polyline(stops.map(s => s.coords), {
+    color: 'blue',
+    weight: 3
+  }).addTo(map);
+
+  // GPS tečka
+  gpsDot = L.circleMarker([0,0], {
+    radius: 8,
+    color: 'red',
+    fillColor: 'red',
+    fillOpacity: 1
+  });
+
+  selectStop(0);
+}
+
+function selectStop(i){
+  currentIndex = i;
+  let s = stops[i];
+  document.getElementById('title').innerText = s.title;
+  document.getElementById('video').src = s.video;
+  map.setView(s.coords, 18);
+
+  markers.forEach((m, idx) => {
+    let iconUrl = "https://maps.gstatic.com/mapfiles/ms2/micons/" + (idx === i ? "red" : "blue") + "-dot.png";
+    m.setIcon(L.icon({ iconUrl: iconUrl, iconSize:[32,32], iconAnchor:[16,32] }));
+  });
+}
+
+function prevStop(){ if(currentIndex > 0) selectStop(currentIndex - 1); }
+function nextStop(){ if(currentIndex < stops.length - 1) selectStop(currentIndex + 1); }
+
+function startNav(){
+  if(!navigator.geolocation) {
+    alert("GPS není dostupné");
+    return;
+  }
+
+  if (watcher) {
+    navigator.geolocation.clearWatch(watcher);
+    watcher = null;
+  }
+
+  watcher = navigator.geolocation.watchPosition
