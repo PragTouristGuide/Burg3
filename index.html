@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Průvodce Pražským hradem s navigací</title>
+  <style>
+    html, body { margin:0; padding:0; height:100%; font-family:sans-serif; }
+    .container { display:flex; flex-direction:column; height:100dvh; max-width:600px; margin:0 auto; padding:8px; gap:4px; }
+    h1 { font-size:1.2rem; margin:0; text-align:center; }
+    iframe { width:100%; aspect-ratio:16/9; border:none; }
+    #map { flex:1; width:100%; }
+    .buttons, .nav-btn { display:flex; justify-content:space-between; width:100%; }
+    button { flex:1; margin:0 2px; padding:6px; font-size:1rem; cursor:pointer; }
+    .nav-btn { margin-top:4px; }
+    .leaflet-container { height:100% !important; width:100% !important; }
+  </style>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+<div class="container">
+  <h1 id="title">Královská zahrada</h1>
+  <iframe id="video" src="https://www.youtube.com/embed/yY3WFh3k85I?si=x5Xzv5z9kyv1XjxI" allowfullscreen></iframe>
+  <div id="map"></div>
+  <div class="buttons">
+    <button onclick="prevStop()">◀ Předchozí</button>
+    <button onclick="nextStop()">Další ▶</button>
+  </div>
+  <div class="nav-btn">
+    <button onclick="startNav()">Navigieren</button>
+  </div>
+</div>
+
+<script>
+const stops = [
+  { title:"Královská zahrada", video:"https://www.youtube.com/embed/yY3WFh3k85I?si=x5Xzv5z9kyv1XjxI", coords:[50.0912,14.4006]},
+  { title:"Katedrála sv. Víta", video:"https://www.youtube.com/embed/Uur-9R_7vZs?si=38Zhr0bX2F1uXz0s", coords:[50.0903,14.4000]},
+  { title:"Starý král. palác", video:"https://www.youtube.com/embed/ZM86oAJqY5E?si=_VKqAML_K6WuayUT", coords:[50.0900,14.4010]}
+];
+
+let currentIndex = 0;
+let map, markers = [], gpsDot, watcher;
+let pathLine;
+
+function init() {
+  map = L.map('map').setView(stops[0].coords,18);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20}).addTo(map);
+
+  const defaultIcon = i => "https://maps.gstatic.com/mapfiles/ms2/micons/" + (i===0?"red":"blue") + "-dot.png";
+
+  stops.forEach((s,i)=>{
+    let m = L.marker(s.coords,{
+      icon: L.icon({iconUrl: defaultIcon(i), iconSize:[32,32], iconAnchor:[16,32]})
+    }).addTo(map).on('click', ()=>selectStop(i));
+    markers.push(m);
+  });
+
+  L.polyline(stops.map(s=>s.coords),{color:'blue',weight:3}).addTo(map);
+  gpsDot = L.circleMarker([0,0],{radius:8,color:'#f00',fillColor:'#f00',fillOpacity:1});
+  selectStop(0);
+}
+
+function selectStop(i){
+  currentIndex = i;
+  let s = stops[i];
+  document.getElementById('title').innerText = s.title;
+  document.getElementById('video').src = s.video;
+  map.setView(s.coords,18);
+  markers.forEach((m,idx)=>
+    m.setIcon(L.icon({
+      iconUrl: "https://maps.gstatic.com/mapfiles/ms2/micons/"+(idx===i?"red":"blue")+"-dot.png",
+      iconSize:[32,32], iconAnchor:[16,32]
+    }))
+  );
+
+  if(pathLine){
+    map.removeLayer(pathLine);
+  }
+  if(i < stops.length - 1){
+    pathLine = L.polyline([stops[i].coords, stops[i+1].coords], {color:'red', dashArray:'5,5'}).addTo(map);
+  }
+}
+
+function prevStop(){ if(currentIndex>0) selectStop(currentIndex-1); }
+function nextStop(){ if(currentIndex<stops.length-1) selectStop(currentIndex+1); }
+
+function startNav(){
+  if(!navigator.geolocation) return alert("GPS nicht verfügbar");
+  if(watcher) return;
+  watcher = navigator.geolocation.watchPosition(onPos, err=>alert("GPS Fehler"), {enableHighAccuracy:true});
+  speak("Navigation gestartet");
+}
+
+function onPos({coords}){
+  let [lat,lng] = [coords.latitude, coords.longitude];
+  if(!gpsDot._map) gpsDot.addTo(map);
+  gpsDot.setLatLng([lat,lng]);
+
+  map.panTo([lat,lng]);
+
+  let dest = stops[currentIndex].coords;
+  let dLat = dest[0]-lat, dLng=dest[1]-lng;
+  let distance = Math.hypot(dLat,dLng);
+
+  if(distance > 0.0005){
+    let angle = Math.atan2(dLng,dLat)*180/Math.PI;
+    let cmd = (angle>-45 && angle<45)?"Gehen Sie geradeaus.":
+              (angle>=45 && angle<135)?"Biegen Sie rechts ab.":
+              (angle<=-45 && angle>-135)?"Biegen Sie links ab.":
+              "Gehen Sie geradeaus.";
+    speak(cmd);
+  } else {
+    speak("Sie haben Ihr Ziel erreicht.");
+    navigator.geolocation.clearWatch(watcher);
+    watcher = null;
+    if(currentIndex < stops.length - 1){
+      setTimeout(()=>selectStop(currentIndex+1),2000);
+    }
+  }
+}
+
+function speak(txt){
+  if('speechSynthesis' in window){
+    let ut = new SpeechSynthesisUtterance(txt);
+    ut.lang = "de-DE";
+    speechSynthesis.speak(ut);
+  }
+}
+
+init();
+</script>
+</body>
+</html>
