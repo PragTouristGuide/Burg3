@@ -40,32 +40,25 @@ const stops = [
 ];
 
 let currentIndex = 0;
-let map, markers = [], gpsDot, watcher;
+let map, markers = [], gpsDot, watcher, routeLine;
+
+const ORS_API_KEY = "5b3ce3597851110001cf6248f34cea3b11c544469dd1ee4b5e1b5555"; // ← 5b3ce3597851110001cf6248f34cea3b11c544469dd1ee4b5e1b5555
 
 function init() {
-  try {
-    map = L.map('map').setView(stops[0].coords, 18);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-      maxZoom: 20,
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
+  map = L.map('map').setView(stops[0].coords,18);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20}).addTo(map);
 
-    const defaultIcon = i=>"https://maps.gstatic.com/mapfiles/ms2/micons/"+(i===0?"red":"blue")+"-dot.png";
+  const defaultIcon = i=>"https://maps.gstatic.com/mapfiles/ms2/micons/"+(i===0?"red":"blue")+"-dot.png";
 
-    stops.forEach((s, i) => {
-      let m = L.marker(s.coords, {
-        icon: L.icon({ iconUrl: defaultIcon(i), iconSize: [32, 32], iconAnchor: [16, 32] })
-      }).addTo(map).on('click', () => selectStop(i));
-      markers.push(m);
-    });
+  stops.forEach((s,i)=>{
+    let m = L.marker(s.coords,{
+      icon: L.icon({iconUrl: defaultIcon(i), iconSize:[32,32], iconAnchor:[16,32]})
+    }).addTo(map).on('click', ()=>selectStop(i));
+    markers.push(m);
+  });
 
-    L.polyline(stops.map(s => s.coords), { color: 'blue', weight: 3 }).addTo(map);
-    gpsDot = L.circleMarker([0, 0], { radius: 8, color: '#f00', fillColor: '#f00', fillOpacity: 1 });
-
-    selectStop(0);
-  } catch (err) {
-    alert("Chyba při načítání mapy: " + err.message);
-  }
+  gpsDot = L.circleMarker([0,0],{radius:8,color:'#f00',fillColor:'#f00',fillOpacity:1});
+  selectStop(0);
 }
 
 function selectStop(i){
@@ -73,53 +66,60 @@ function selectStop(i){
   let s = stops[i];
   document.getElementById('title').innerText = s.title;
   document.getElementById('video').src = s.video;
-  map.setView(s.coords, 18);
-  markers.forEach((m, idx) => {
+  map.setView(s.coords,18);
+  markers.forEach((m,idx)=>
     m.setIcon(L.icon({
-      iconUrl: "https://maps.gstatic.com/mapfiles/ms2/micons/" + (idx === i ? "red" : "blue") + "-dot.png",
-      iconSize: [32, 32], iconAnchor: [16, 32]
-    }));
-  });
+      iconUrl: "https://maps.gstatic.com/mapfiles/ms2/micons/"+(idx===i?"red":"blue")+"-dot.png",
+      iconSize:[32,32], iconAnchor:[16,32]
+    }))
+  );
+  if(routeLine) {
+    map.removeLayer(routeLine);
+    routeLine = null;
+  }
 }
 
-function prevStop() {
-  if(currentIndex > 0) selectStop(currentIndex - 1);
-}
-
-function nextStop() {
-  if(currentIndex < stops.length - 1) selectStop(currentIndex + 1);
-}
+function prevStop(){ if(currentIndex>0) selectStop(currentIndex-1); }
+function nextStop(){ if(currentIndex<stops.length-1) selectStop(currentIndex+1); }
 
 function startNav(){
-  if (!navigator.geolocation) return alert("GPS není dostupné");
-  if (watcher) return;
-  watcher = navigator.geolocation.watchPosition(onPos, err => alert("GPS chyba: " + err.message), { enableHighAccuracy: true });
+  if(!navigator.geolocation) return alert("GPS nicht verfügbar");
+  if(watcher) return;
+  watcher = navigator.geolocation.watchPosition(onPos,err=>alert("GPS Fehler"),{enableHighAccuracy:true});
   speak("Navigation gestartet");
 }
 
-function onPos({coords}) {
-  let [lat, lng] = [coords.latitude, coords.longitude];
-  if (!gpsDot._map) gpsDot.addTo(map);
-  gpsDot.setLatLng([lat, lng]);
+function onPos({coords}){
+  let [lat,lng] = [coords.latitude, coords.longitude];
+  if(!gpsDot._map) gpsDot.addTo(map);
+  gpsDot.setLatLng([lat,lng]);
+  getRoute([lng,lat], [stops[currentIndex].coords[1], stops[currentIndex].coords[0]]);
+}
 
-  let dest = stops[currentIndex].coords;
-  let dLat = dest[0] - lat, dLng = dest[1] - lng;
-  if (Math.hypot(dLat, dLng) > 0.0005) {
-    let angle = Math.atan2(dLng, dLat) * 180 / Math.PI;
-    let cmd = (angle > -45 && angle < 45) ? "Gehen Sie geradeaus." :
-              (angle >= 45 && angle < 135) ? "Biegen Sie rechts ab." :
-              (angle >= -135 && angle <= -45) ? "Biegen Sie links ab." :
-              "Gehen Sie geradeaus.";
-    speak(cmd);
-  } else {
-    speak("Sie haben Ihr Ziel erreicht.");
-    navigator.geolocation.clearWatch(watcher);
-    watcher = null;
+async function getRoute(start, end){
+  try {
+    const res = await fetch("https://api.openrouteservice.org/v2/directions/foot-walking/geojson", {
+      method: "POST",
+      headers: {
+        "Authorization": ORS_API_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({coordinates: [start, end]})
+    });
+    const data = await res.json();
+    const coords = data.features[0].geometry.coordinates.map(c => [c[1], c[0]]);
+    if(routeLine) map.removeLayer(routeLine);
+    routeLine = L.polyline(coords, {color:'green', weight:5}).addTo(map);
+    map.fitBounds(routeLine.getBounds());
+    speak("Folgen Sie der grünen Linie.");
+  } catch (e) {
+    console.error("Chyba při načítání trasy:", e);
+    speak("Route konnte nicht geladen werden.");
   }
 }
 
 function speak(txt){
-  if ('speechSynthesis' in window) {
+  if('speechSynthesis' in window){
     let ut = new SpeechSynthesisUtterance(txt);
     ut.lang = "de-DE";
     speechSynthesis.speak(ut);
